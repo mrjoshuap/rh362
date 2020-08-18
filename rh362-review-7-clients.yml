@@ -1,0 +1,34 @@
+---
+
+- name: RH362 - Install ipa clients
+  hosts: rhel,!idm,!replicas
+  become: yes
+
+  tasks:
+    - name: configure idm dns for client # noqa 301
+      command: 'nmcli con mod "System eth0" ipv4.dns {{ ipaserver_forwarder }}'
+
+    - name: configure idm dns search for client # noqa 301
+      command: 'nmcli con mod "System eth0" ipv4.dns-search "{{ ipaclient_domain }}"'
+
+    - name: restart network adapter dns for trust # noqa 301
+      command: 'nmcli con up "System eth0"'
+
+    - name: install packages
+      yum:
+        name: ipa-client
+        state: present
+
+    - name: install ipa client
+      shell: |
+        ipa-client-install -U \
+          --principal={{ ipaadmin_principal }}@{{ ipaclient_realm }} \
+          --password={{ ipaadmin_password }} \
+          --mkhomedir \
+          --no-ntp \
+          --enable-dns-updates \
+          --request-cert \
+          --ssh-trust-dns
+      args:
+        creates: /etc/ipa/ca.crt
+      register: ipa_client_install

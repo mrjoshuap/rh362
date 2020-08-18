@@ -1,0 +1,138 @@
+---
+
+- name: RH362 - Install ipa replicas
+  hosts: replicas
+  become: yes
+
+  tasks:
+    - name: configure replica dns for client # noqa 301
+      command: 'nmcli con mod "System eth0" ipv4.dns {{ ipaserver_forwarder }}'
+
+    - name: configure replica dns search for client # noqa 301
+      command: 'nmcli con mod "System eth0" ipv4.dns-search "{{ ipaclient_domain }}"'
+
+    - name: restart network adapter dns for trust # noqa 301
+      command: 'nmcli con up "System eth0"'
+
+    - name: install packages
+      yum:
+        name: ipa-client
+        state: present
+
+    - name: install ipa client # noqa 301
+      shell: |
+        ipa-client-install -U \
+          --principal={{ ipaadmin_principal }}@{{ ipaclient_realm }} \
+          --password={{ ipaadmin_password }} \
+          --mkhomedir \
+          --no-ntp \
+          --enable-dns-updates \
+          --request-cert \
+          --ssh-trust-dns
+      args:
+        creates: /etc/ipa/ca.crt
+      register: ipa_client_install
+
+    - name: reboot system # noqa 503
+      reboot:
+      when: 'ipa_client_install.changed'
+
+    - name: install packages
+      yum:
+        name: '{{ item }}'
+        state: present
+      with_items:
+        - ipa-server
+        - ipa-server-dns
+
+    - name: configure firewall
+      firewalld:
+        service: '{{ item }}'
+        state: enabled
+        permanent: yes
+        immediate: yes
+      with_items:
+        - freeipa-ldap
+        - freeipa-ldaps
+        - freeipa-trust
+        - freeipa-replication
+        - dns
+        - kerberos
+        - kadmin
+        - klogin
+        - kpasswd
+
+    - name: install ipa replica # noqa 301
+      shell: |
+        ipa-replica-install -U \
+          --principal={{ ipaadmin_principal }}@{{ ipaclient_realm }} \
+          --admin-password={{ ipaadmin_password }} \
+          --setup-dns --setup-ca --no-forwarders \
+          && touch /etc/ipa-replica-installed
+      args:
+        creates: /etc/ipa-replica-installed
+
+- name: Configure IDM for AD Trust
+  hosts: idm
+  become: yes
+
+  tasks:
+
+    - name: setup trust agents on replicas # noqa 301
+      shell: |
+        set -o pipefail
+        echo {{ ipaadmin_password }} | kinit {{ ipaadmin_principal }}
+        ipa-adtrust-install -U --netbios-name={{ ipaserver_netbios_name }} -a {{ ipaadmin_password }} --add-sids --enable-compat --add-agents
+        touch /etc/ipa-replicas-installed
+      args:
+        creates: /etc/ipa-replicas-installed
+      register: ipa_adtrust_install
+      failed_when:
+        - '"Setup complete" not in ipa_adtrust_install.stdout and "skipped, since /etc/ipa-replicas-installed exists" not in ipa_adtrust_install.stdout'
+      changed_when:
+        - '"Setup complete" in ipa_adtrust_install.stdout'
+
+- name: restart ipa replicas
+  hosts: replicas
+  become: yes
+
+  tasks:
+    - name: restart ipa services # noqa 301
+      command: ipactl restart
+
+- name: create proper topology
+  hosts: idm
+  become: yes
+
+  tasks:
+
+    - name: check replica1 to replica2 ca replication # noqa 301
+      shell: |
+        set -o pipefail
+        echo {{ ipaadmin_password }} | kinit {{ ipaadmin_principal }}
+        ipa topologysegment-find --leftnode=replica1.lab.example.net --rightnode=replica2.lab.example.net ca
+      register: ca_replication
+
+    - name: create proper topology for ca # noqa 301
+      shell: |
+        set -o pipefail
+        echo {{ ipaadmin_password }} | kinit {{ ipaadmin_principal }}
+        ipa topologysegment-add --leftnode=replica1.lab.example.net --rightnode=replica2.lab.example.net ca replica1.lab.example.net-to-replica2.lab.example.net
+      when: 'ca_replication.rc != 0'
+
+    - name: check replica1 to replica2 domain replication # noqa 301
+      shell: |
+        set -o pipefail
+        echo {{ ipaadmin_password }} | kinit {{ ipaadmin_principal }}
+        ipa topologysegment-find --leftnode=replica1.lab.example.net --rightnode=replica2.lab.example.net domain
+      register: domain_replication
+
+    - name: create proper topology for domain # noqa 301
+      shell: |
+        set -o pipefail
+        echo {{ ipaadmin_password }} | kinit {{ ipaadmin_principal }}
+        ipa topologysegment-add \
+          --leftnode=replica1.lab.example.net \
+          --rightnode=replica2.lab.example.net \
+          domain replica1.lab.example.net-to-replica2.lab.example.net
+      when: 'domain_replication.rc != 0'

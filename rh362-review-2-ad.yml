@@ -1,0 +1,12 @@
+---
+
+- name: RH362 - Delegate DNS zones from AD to IdM
+  hosts: ad
+  become: yes
+
+  tasks:
+    - name: Add A record for idm.{{ ipaclient_domain }}
+      win_command: 'dnscmd 127.0.0.1 /RecordAdd {{ ad_domain }} idm.{{ ipaclient_domain }}. A {{ ipaserver_forwarder }}'
+
+    - name: Add NS record for for {{ ipaclient_domain }}
+      win_command: 'dnscmd 127.0.0.1 /RecordAdd {{ ad_domain }} {{ ipaclient_domain }}. NS idm.{{ ipaclient_domain }}.'

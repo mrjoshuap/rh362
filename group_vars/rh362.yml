@@ -1,0 +1,96 @@
+---
+
+# https://github.com/freeipa/ansible-freeipa/blob/master/roles/ipaserver/README.md
+
+ipaserver_forwarder: 172.25.250.8
+#
+# Base Variables
+#
+ipadm_password: RedHat123^
+ipaadmin_principal: admin
+ipaadmin_password: RedHat123^
+# ipaserver_ip_addresses:
+#   - 172.25.250.8
+ipaserver_domain: lab.example.net
+ipaserver_realm: LAB.EXAMPLE.NET
+# ipaserver_hostname: idm.lab.example.net
+ipaserver_no_host_dns: no
+
+#
+# Server variables
+#
+ipaserver_setup_adtrust: yes
+ipaserver_setup_kra: yes
+ipaserver_setup_dns: yes
+# ipaserver_idstart: 125001
+# ipaserver_idmax: 199999
+ipaserver_no_hbac_allow: no
+ipaserver_no_ui_redirect: no
+# ipaserver_dirsrv_config_file: /etc/ipa/dirsrv.ldif
+# ipaserver_pki_config_override: /etc/ipa/pki.ini
+
+#
+# Client Variables
+#
+ipaclient_domain: '{{ ipaserver_domain }}'
+ipaclient_realm: '{{ ipaserver_realm }}'
+# The list defines the NTP servers to be used.
+# ipaclient_ntp_servers:
+#   - 172.25.250.13
+# The string value defines the ntp server pool to be used.
+# ipaclient_ntp_pool: some.pool.ntp.com
+# The bool value defines if NTP will not be configured and enabled.
+# ipaclient_no_ntp defaults to no.
+ipaclient_no_ntp: no
+# The bool value defines if OpenSSH client will be configured to trust DNS SSHFP records.
+# ipaclient_ssh_trust_dns defaults to no.
+ipaclient_ssh_trust_dns: yes
+# The bool value defines if OpenSSH client will be configured.
+# ipaclient_no_ssh defaults to no.
+ipaclient_no_ssh: no
+# The bool value defines if OpenSSH server will be configured.
+# ipaclient_no_sshd defaults to no.
+ipaclient_no_sshd: no
+# The bool value defines if SSSD will be configured as a data source for sudo.
+# ipaclient_no_sudo defaults to no.
+ipaclient_no_sudo: no
+# The bool value defines if DNS SSHFP records will not be created automatically.
+# ipaclient_no_dns_sshfp defaults to no.
+ipaclient_no_dns_sshfp: no
+
+#
+# DNS Variables
+#
+ipaserver_allow_zone_overlap: yes
+ipaserver_no_reverse: no
+ipaserver_auto_reverse: yes
+# ipaserver_reverse_zones:
+#   - 250.25.172.in-addr.arpa.
+# ipaserver_zonemgr: 'hostmaster@{{ ipaserver_domain }}'
+ipaserver_no_forwarders: no
+ipaserver_auto_forwarders: yes
+# ipaserver_forwarders:
+#   - 172.25.250.8
+# ipaserver_forward_policy: only
+ipaserver_no_dnssec_validation: yes
+
+#
+# AD trust variables
+#
+ipaserver_enable_compat: yes
+ipaserver_netbios_name: LABEXAMPLE
+# ipaserver_rid_base: 100200300
+# ipaserver_secondary_rid_base: 200300400
+
+#
+# Special Variables
+#
+ipaserver_install_packages: yes
+ipaserver_setup_firewalld: yes
+
+ad_domain: example.net
+ad_forwarders:
+  - 172.25.250.13
+ad_password: password123!
+ad_realm: EXAMPLE.NET
+ad_username: Administrator

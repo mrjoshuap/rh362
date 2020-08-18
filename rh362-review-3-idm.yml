@@ -1,0 +1,103 @@
+---
+
+- name: RH362 - Configure IDM for AD Trust
+  hosts: idm
+  become: yes
+
+  tasks:
+    - name: ensure software installed
+      yum:
+        name: ipa-server-trust-ad
+        state: present
+
+    - name: configure firewall
+      firewalld:
+        service: '{{ item }}'
+        state: enabled
+        permanent: yes
+        immediate: yes
+      with_items:
+        - freeipa-ldap
+        - freeipa-ldaps
+        - freeipa-trust
+        - freeipa-replication
+        - dns
+        - kerberos
+        - kadmin
+        - klogin
+        - kpasswd
+
+    - name: setup default idm stuffs
+      shell: |
+        set -o pipefail
+        echo {{ ipaadmin_password }} | kinit {{ ipaadmin_principal }}
+        ipa dnsconfig-mod --allow-sync-ptr=true
+        ipa config-mod --defaultshell=/bin/bash
+        ipa group-mod ipausers --posix
+        touch /etc/ipa-configured
+      args:
+        creates: /etc/ipa-configured
+
+    - name: setup trust to active directory
+      shell: |
+        set -o pipefail
+        echo {{ ipaadmin_password }} | kinit {{ ipaadmin_principal }}
+        ipa-adtrust-install -U --netbios-name={{ ipaserver_netbios_name }} -a {{ ipaadmin_password }} --add-sids --enable-compat --add-agents
+        touch /etc/ipa-adtrust-installed
+      args:
+        creates: /etc/ipa-adtrust-installed
+      register: ipa_adtrust_install
+      failed_when:
+        - '"Setup complete" not in ipa_adtrust_install.stdout and "skipped, since /etc/ipa-adtrust-installed exists" not in ipa_adtrust_install.stdout'
+      changed_when:
+        - '"Setup complete" in ipa_adtrust_install.stdout'
+
+    - name: configure idm dns for trust # noqa 301
+      command: 'nmcli con mod "System eth0" ipv4.dns 127.0.0.1'
+
+    - name: configure idm dns search for trust # noqa 301
+      command: 'nmcli con mod "System eth0" ipv4.dns-search "{{ ipaclient_domain }}"'
+
+    - name: restart network adapter dns for trust # noqa 301
+      command: 'nmcli con up "System eth0"'
+
+    - name: ensure dnssec-validation is disabled
+      lineinfile:
+        dest: /etc/named.conf
+        regexp: '^(.*)dnssec-validation(.*)yes;'
+        line: '\1dnssec-validation\2no;'
+        backrefs: yes
+      register: dnssec_validation
+
+    - name: restart ipa # noqa 301 503
+      command: ipactl restart
+      when: 'dnssec_validation.changed'
+
+    - name: check forward zone # noqa 301
+      command: 'ipa dnsforwardzone-find --name={{ ad_domain }}'
+      register: forward_zone
+      ignore_errors: yes
+      changed_when: no
+
+    - name: create named zone # noqa 301
+      command: 'ipa dnsforwardzone-add {{ ad_domain }} --skip-overlap-check  --forwarder={{ ad_dns_forwarder }} --forward-policy=only'
+      when: 'forward_zone.rc != 0'
+      register: named_zone
+
+    - name: restart named-pkcs11 # noqa 503
+      service:
+        name: named-pkcs11
+        state: restarted
+      when: 'named_zone.changed'
+
+    - name: check ad trust # noqa 301
+      command: 'ipa trust-find --realm={{ ad_realm }}'
+      register: ad_trust
+      ignore_errors: yes
+      changed_when: no
+
+    - name: establish trust with AD
+      shell: |
+        set -o pipefail
+        echo "{{ ad_password }}" | ipa trust-add {{ ad_realm }} --type=ad --admin={{ ad_username }} --password
+      when: 'ad_trust.rc != 0'

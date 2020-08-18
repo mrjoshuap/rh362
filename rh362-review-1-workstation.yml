@@ -1,0 +1,14 @@
+---
+
+- name: RH362 - Perform comprehensive review setup
+  hosts: workstation
+  become: no
+
+  tasks:
+    - name: Deploy lab review-relationship from RH362
+      shell: |
+        set -o pipefail
+        /usr/local/bin/lab review-relationship setup
+        touch /home/student/lab-review-relationship-setup
+      args:
+        creates: /home/student/lab-review-relationship-setup
